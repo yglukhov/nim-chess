@@ -367,6 +367,7 @@ proc quiescence(color: Color; depthleft: int; alpha: int; beta: int): int =
   s.sort do (a, b: KK) -> int:
     result = cmp(b.s, a.s)
   for el in s:
+    if el.df.abs == KingID: return AB_inf
     board[el.si] = VoidID
     board[el.di] = el.sf
     var en_passant = el.sf.abs == PawnID and el.df == VoidID and (el.di - el.si).odd # move is an e_p capture
@@ -409,6 +410,7 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
     result = cmp(b.s, a.s)
   if depthleft > 3: # fast search for good move ordering
     for el in s.mitems:
+      if el.df.abs == KingID: result.score = AB_inf; break # or may we return? Should be OK
       board[el.si] = VoidID
       board[el.di] = el.sf
       if base_row(el.di) and board[el.di].abs == PawnID:
@@ -437,6 +439,7 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
       result = cmp(b.s, a.s)
   alpha = alpha0
   for el in s:
+    if el.df.abs == KingID: result.score = AB_inf; return
     board[el.si] = VoidID
     board[el.di] = el.sf
     if base_row(el.di) and board[el.di].abs == PawnID:
