@@ -32,9 +32,13 @@ http://nim-lang.org/
 In your terminal type:
 
 mkdir toychessdir
+
 cd  toychessdir
+
 git clone https://github.com/StefanSalewski/nim-chess
+
 cd nim-chess
+
 nim c -d:release board.nim
 
 ./board
