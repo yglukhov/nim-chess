@@ -1,0 +1,11 @@
+cp ~/nim-glib/src/glib.nim .
+cp ~/nim-gtk3/src/gtk3.nim .
+cp ~/nim-gio/src/gio.nim .
+cp ~/nim-atk/src/atk.nim .
+cp ~/nim-gdk3/src/gdk3.nim .
+cp ~/nim-gobject/src/gobject.nim .
+cp ~/nim-cairo/src/cairo.nim .
+cp ~/nim-cairo/src/cairo_pragma.nim .
+cp ~/nim-pango/src/pango.nim .
+cp ~/nim-pango/src/pango_cairo.nim .
+cp ~/nim-gdk_pixbuf/src/gdk_pixbuf.nim .
