@@ -2,7 +2,8 @@
 # c S. Salewski 2016
 
 from algorithm import sort
-from sequtils import keepIf
+from sequtils import keepIf, anyIt
+from times import cpuTime
 
 const
   AB_Inf = 32000
@@ -46,13 +47,15 @@ const
   KingDirs = [N, O, S, W, NO, SO, NW, SW] # KingDirs = BishopDirs + RookDirs
 
 const
+  StaleMateValue = 0
   VoidValue = 0
   PawnValue = 100
   KnightValue = 300
   BishopValue = 300
   RookValue = 500
   QueenValue = 900
-  KingValue = 10000
+  KingValue = 18000
+  SureCheckmate* = KingValue div 2
 
   FigureValue: array[-KingID..KingID, int] = [-KingValue, -QueenValue, -RookValue, -BishopValue, -KnightValue, -PawnValue, VoidValue,
     PawnValue, KnightValue, BishopValue, RookValue, QueenValue, KingValue]
@@ -66,7 +69,7 @@ const
     BRook, BKnight, BBishop, BKing, BQueen, BBishop, BKnight, BRook]
 
 # the traditional row and column designators -- B prefix for Board
-const BA = 0; const BB = 1; const BC = 2; const BD = 3; const BE = 4; const BF = 5; const BG = 6; const BH = 7
+const BA = 7; const BB = 6; const BC = 5; const BD = 4; const BE = 3; const BF = 2; const BG = 1; const BH = 0
 const B1 = 0; const B2 = 1; const B3 = 2; const B4 = 3; const B5 = 4; const B6 = 5; const B7 = 6; const B8 = 7
 
 const PosRange = 0..63
@@ -100,9 +103,12 @@ var # we use global data for now
   bishop_path: Path
   rook_path: Path
   king_path: Path
+  checkmate_depth = -1
   pjm = -1
 
 # proc same_sign(i: int; j: Color): bool = (i.int xor j.int) >= 0
+
+proc clear[T](s: var seq[T]) = s.setLen(0)
 
 proc is_a_pawn(p: Position): bool = board[p].abs == PawnID
 
@@ -140,7 +146,7 @@ proc move_is_valid(src: Position; dst: int): bool =
     a = col(src)
     b = col(dst)
   if a > b: swap(a, b)
-  not (a == BA and b == BH)
+  not (a == 0 and b == 7)
 
 proc knight_move_is_valid(src: Position; dst: int): bool =
   if off_board64(dst): return false
@@ -148,7 +154,7 @@ proc knight_move_is_valid(src: Position; dst: int): bool =
     a = col(src)
     b = col(dst)
   if a > b: swap(a, b)
-  not ((a == BA and (b == BH or b == BG)) or (a == BB and b == BH))
+  not ((a == 0 and (b == 7 or b == 6)) or (a == 1 and b == 7))
 
 proc pawn_move_is_valid(c: Color; src, dst: int): bool =
   if not move_is_valid(src, dst): return false
@@ -164,7 +170,7 @@ proc initRook =
       while true:
         var dst = pos + d
         if not move_is_valid(pos, dst): break
-        rook_path[src][i].pos = if pos == src: -dst else: dst # mark start pos for this dir
+        rook_path[src][i].pos = if pos == src: - dst else: dst # mark start pos for this dir
         inc i
         pos = dst
     var nxt_dir_start = i # index of the last terminal node
@@ -295,12 +301,12 @@ proc walkPawn(kk: KK; s: var KKS) =
   let col_idx = col_idx(sign(kk.sf).Color)
   var i: int
   var kk = kk
-  for j in 0..1: # 2.times
+  while i < 2:
     kk.di = pawn_path[col_idx][kk.si][i].pos
     inc i
     if kk.di >= 0:
       kk.df = board[kk.di]
-      if capture(kk) or (kk.s >= 0 and kk.s in mob_set[kk.di]):
+      if capture(kk) or (kk.s >= 0 and (not base_row(kk.di)) and kk.s in mob_set[kk.di]):
         s.add kk
   kk.di = pawn_path[col_idx][kk.si][i].pos
   inc i
@@ -319,6 +325,7 @@ type
     src: int
     dst: int
     score: int
+    checkmate_depth: int
 
 var ev_counter: int
 proc evaluate_board: int =
@@ -367,7 +374,7 @@ proc quiescence(color: Color; depthleft: int; alpha: int; beta: int): int =
   s.sort do (a, b: KK) -> int:
     result = cmp(b.s, a.s)
   for el in s:
-    if el.df.abs == KingID: return AB_inf
+    if el.df.abs == KingID: return KingValue + depthleft * QueenValue
     board[el.si] = VoidID
     board[el.di] = el.sf
     var en_passant = el.sf.abs == PawnID and el.df == VoidID and (el.di - el.si).odd # move is an e_p capture
@@ -404,13 +411,14 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
       of QueenID: walkBishop(kk, s); walkRook(kk, s)
       of KingID: walkKing(kk, s)
       else: discard
+  if s.len == 0 : result.score = StaleMateValue; return
   for el in s.mitems:
     el.s = FigureValue[el.df].abs - FigureValue[el.sf].abs - KingValue
   s.sort do (a, b: KK) -> int:
     result = cmp(b.s, a.s)
   if depthleft > 3: # fast search for good move ordering
     for el in s.mitems:
-      if el.df.abs == KingID: result.score = AB_inf; break # or may we return? Should be OK
+      if el.df.abs == KingID: el.s = KingValue; break #result.score = KingValue + depthleft * QueenValue; break
       board[el.si] = VoidID
       board[el.di] = el.sf
       if base_row(el.di) and board[el.di].abs == PawnID:
@@ -431,7 +439,7 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
       m.score *= -1
       el.s = m.score # for move ordering
       if m.score >= beta:
-        result.score = beta # or return m.score? should not really matter
+        #result.score = beta # or return m.score? should not really matter
         break
       if m.score > alpha:
         alpha = m.score
@@ -439,7 +447,11 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
       result = cmp(b.s, a.s)
   alpha = alpha0
   for el in s:
-    if el.df.abs == KingID: result.score = AB_inf; return
+    if el.df.abs == KingID:
+      result.score = KingValue + depthleft * QueenValue
+      result.src = el.si
+      result.dst = el.di
+      return
     board[el.si] = VoidID
     board[el.di] = el.sf
     if base_row(el.di) and board[el.di].abs == PawnID:
@@ -502,6 +514,62 @@ proc alphabeta(color: Color; depthleft: int; alpha0: int; beta: int): Move =
           result.dst = q[0] + q[5]
   result.score = alpha
 
+proc king_pos(c: Color): Position =
+  var oppK = KingID * c.int
+  for i, f in board:
+    if f == oppK:
+      return i
+
+proc in_check(si: int, col): bool =
+  var
+    kk: KK
+    s = newSeq[KK]()
+    #result = false
+  kk.si = si
+  kk.sf = sign(col.int) * KingID
+  while true:
+    walkBishop(kk, s)
+    result = anyIt(s, it.df.abs == BishopID or it.df.abs == QueenID)
+    if result: break
+    s.clear
+    walkRook(kk, s)
+    result = anyIt(s, it.df.abs == RookID or it.df.abs == QueenID)
+    if result: break
+    s.clear
+    walkKnight(kk, s)
+    result = anyIt(s, it.df.abs == KnightID)
+    if result: break
+    s.clear
+    walkPawn(kk, s)
+    result = anyIt(s, it.df.abs == PawnID)
+    break
+  #return result
+
+type Flag* {.pure.} = enum
+  plain, capture, ep, promotion, procap
+  
+proc do_move*(p0, p1: Position; silent = false): Flag =
+  if board[p1] != VoidID: result = Flag.capture
+  if board[p0].abs == PawnID and board[p1].abs == VoidID and (p1 - p0).odd: result = Flag.ep
+  if not silent: has_moved[p0] = true
+  pjm = -1
+  if is_a_pawn(p0) and (p0 - p1).abs == 16:
+    pjm = (p0 + p1) div 2
+  if (p1 - p0).abs == 2 and is_a_king(p0):
+    if col(p1) == 1:
+      board[p0 - 1] = board[p0 - 3]
+      board[p0 - 3] = VoidID
+    else:
+      board[p0 + 1] = board[p0 + 4]
+      board[p0 + 4] = VoidID
+  if base_row(p1) and board[p0].abs == PawnID:
+    board[p0] *= QueenID
+    result = if result == Flag.capture: Flag.procap else: Flag.promotion
+  if is_a_pawn(p0) and board[p1].abs == VoidID and (p1 - p0).odd:
+    board[p1 - sign(board[p0] * 8)] = VoidID
+  board[p1] = board[p0]
+  board[p0] = VoidID
+  
 proc tag*(si: int): KKS =
   var kk: KK
   kk.sf = board[si]
@@ -519,12 +587,10 @@ proc tag*(si: int): KKS =
     of QueenID: walkBishop(kk, s); walkRook(kk, s)
     of KingID: walkKing(kk, s)
     else: discard
-  if si == 3 or si == 3 + 7 * 8: # check for castling is a bit expensive, maybe we should supress quiescence()
+  if si == 3 or si == 3 + 7 * 8:
     const # king, void, void, void, rook, king_delta, rook_delta
       Q = [[3, 2, 1, 1, 0, -2, 2], [3, 4, 5, 6, 7, 2, -3]]
-      DD = 2
     let
-      x = DD - 1
       k = WKing * color.int
       r = WRook * color.int
     for i in 0..1: # castlings both sides
@@ -534,22 +600,15 @@ proc tag*(si: int): KKS =
           q[j] += 7 * 8
       if board[q[0]] == k and board[q[1]] == 0 and board[q[2]] == 0 and board[q[3]] == 0 and board[q[4]] == r and
         not (has_moved[q[0]] or has_moved[q[4]]):
-        has_moved[q[0]] = true; has_moved[q[4]] = true
-        board[q[0]] = 0
-        board[q[0] + q[5]] = k
-        board[q[4] + q[6]] = r
-        board[q[4]] = 0
-        excl(mob_set[q[0]], x); excl(mob_set[q[1]], x); excl(mob_set[q[2]], x) # attacked positions, opp moves will set these
-        var m = alphabeta(color.oppColor, x, -AB_inf, AB_inf) # full search with max beta to set really all attack bits
-        has_moved[q[0]] = false; has_moved[q[4]] = false
-        board[q[0]] = k
-        board[q[1]] = 0
-        board[q[2]] = 0
-        board[q[3]] = 0
-        board[q[4]] = r
-        if not (x in mob_set[q[0]] or x in mob_set[q[1]] or x in mob_set[q[2]]): # was castling legal?
+        if not (in_check(q[1], color) or in_check(q[2], color)):
           kk.di = q[0] + q[5]
           s.add kk
+  var backup = board
+  for el in s.mitems:
+    discard do_move(el.si, el.di, silent = true)
+    el.s = if in_check(king_pos(color), color): -1 else: 0
+    board = backup
+  keepIf(s, proc(el: KK): bool = el.s == 0)
   if pjm > 0:
     excl(mob_set[pjm], 0)
   return s
@@ -570,42 +629,22 @@ proc row_str(c: Col): char = char('1'.int + c.int)
 proc getBoard*: Board =
   result = board
 
-proc do_move*(p0, p1: Position) =
-  has_moved[p0] = true
-  pjm = -1
-  #if board[p0].abs == PawnID and (p0 - p1).abs == 16:
-  if is_a_pawn(p0) and (p0 - p1).abs == 16:
-    pjm = (p0 - p1) div 2
-  if (p1 - p0).abs == 2 and is_a_king(p0):
-    if col(p1) == 1:
-      swap(board[p0 - 1], board[p0 - 3])
-      #board[p0 - 1] = board[p0 - 3]
-      #board[p0 - 3] = VoidID
+# call this after do_move()
+proc move_to_str*(si, di: Position; flag: Flag): string =
+  if true: # move_is_valid(si, di): # avoid unnecessary expensive test
+    if board[di].abs == KingID and (di - si).abs == 2:
+      result = if col(di) == 1: "o-o" else: "o-o-o"
     else:
-      swap(board[p0 + 1], board[p0 + 4])
-      #board[p0 + 1] = board[p0 + 4]
-      #board[p0 + 4] = VoidID
-  if base_row(p1) and board[p0].abs == PawnID:
-    board[p0] *= QueenID
-  board[p1] = board[p0]
-  board[p0] = VoidID
-
-proc move_to_str*(si, di: Position): string =
-  if true: # move_is_valid(si, di):
-    if si == 3 or si == 3 + 7 * 8:
-      if col(di) == 1:
-        result = "o-o"
-      else:
-        result = "o-o-o"
-    else:
-      result = (FigStr[board[si].abs])
+      result = (FigStr[board[di].abs])
       result.add(col_str(col(si)))
       result.add(row_str(row(si)))
-      result.add(if board[di] == 0: '-' else: 'x')
+      result.add(if flag == Flag.capture or flag == Flag.procap: 'x' else: '-')
       result.add(col_str(col(di)))
       result.add(row_str(row(di)))
-      if board[si].abs == PawnID and board[di] == VoidID and (di - si).odd:
+      if flag == Flag.ep or flag == Flag.procap:
         result.add(" e.p.")
+    if in_check(king_pos((-sign(board[di])).Color), -sign(board[di])):
+      result.add(" +")
   else:
     result = "invalid move"
 
@@ -613,11 +652,34 @@ const
   Ply = 5
 
 proc reply*(): Move =
-  if pjm > 0:
-    incl(mob_set[pjm], Ply) # next opp move can do e_p capture
+  var depth = 0
   ev_counter = 0
-  result = alphabeta(Black, Ply, -AB_Inf, AB_inf)
-  echo "calls of evaluate:", ev_counter
+  if checkmate_depth >= 0:
+    while depth < Ply:
+      inc depth
+      if pjm > 0: incl(mob_set[pjm], depth) # next opp move can do e_p capture
+      result = alphabeta(Black, depth, -AB_Inf, AB_inf)
+      if pjm > 0: excl(mob_set[pjm], depth)
+      if result.score.abs > SureCheckmate: break
+  else:
+    depth = Ply - 1
+    var start_time = cpuTime()
+    while depth < Ply + 1: # max 2 times
+      inc depth
+      if pjm > 0: incl(mob_set[pjm], depth)
+      result = alphabeta(Black, depth, -AB_Inf, AB_inf)
+      if pjm > 0: excl(mob_set[pjm], depth)
+      if result.score.abs > SureCheckmate: break
+      if cpuTime() - start_time > 0.2: break
+  if result.score.abs > SureCheckmate:
+    checkmate_depth = depth
+  result.checkmate_depth = checkmate_depth div 2 - 2
+  echo "calls of evaluate: ", ev_counter
+  echo "depth: ", depth
+
+#proc set_board(f: FigureID; c, r: Position) = board[c + r * 8] = f
+
+#proc set_happyness(f: FigureID; c, r: Position; h: int) = freedom[f][c + r * 8] = h
 
 initPawn(White)
 initPawn(Black)
@@ -626,6 +688,9 @@ initKnight()
 initKing()
 initRook()
 board = Setup
+checkmate_depth = -1
+#set_board(WPawn, BE, B5)
+#set_happyness(PawnID, BE, B5, 75)
 
 when isMainModule:
   echo "use board.nim"

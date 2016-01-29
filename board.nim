@@ -1,6 +1,6 @@
 import gtk3, gdk3, glib, gobject, pango, cairo, pango_cairo
 
-from engine import Board, getBoard, do_move, reply, tag, move_to_str, move_is_valid
+from engine import Board, getBoard, do_move, reply, tag, move_to_str, move_is_valid, Flag, SureCheckmate
 
 # some more cleanup is necessary!
 
@@ -33,7 +33,7 @@ proc drawIt(cr: cairo.Context; widget: Widget) {.cdecl.} =
     desc: pango.FontDescription
     i: cint
   for i, f in board:
-    var h = if tagged[i] == 1: 0.2 else: 0
+    var h = if tagged[i] > 0: 0.2 else: 0
     if i mod 2 != (i div 8) mod 2:
       cr.set_source_rgba(0.9, 0.9, 0.9 - h, 1)
     else:
@@ -45,8 +45,11 @@ proc drawIt(cr: cairo.Context; widget: Widget) {.cdecl.} =
   desc.absolute_size = min(width, height) / 8 * pango.Scale
   layout.setFontDescription(desc)
   pango.free(desc)
-  cr.set_source_rgba(0, 0, 0, 1)
   for i, f in board:
+    if tagged[i] < 0:
+      cr.set_source_rgba(0, 0, 0, 0.5)
+    else:
+      cr.set_source_rgba(0, 0, 0, 1)
     layout.setText(Figures[f], -1)
     cr.updateLayout(layout)
     layout.getSize(w, h)
@@ -56,6 +59,7 @@ proc drawIt(cr: cairo.Context; widget: Widget) {.cdecl.} =
 
 proc onButtonPressEvent(widget: Widget; event: EventButton; userData: gpointer): gboolean {.cdecl.} =
   var p0, p1, x, y: int
+  var msg: string
   for i in mitems(tagged): i = 0
   if firstclickx == -1:
     firstclickx = int(event.x) # event.x is cdouble
@@ -65,6 +69,7 @@ proc onButtonPressEvent(widget: Widget; event: EventButton; userData: gpointer):
     p0 = 63 - (x + y * 8)
     for i in tag(p0):
       tagged[63 - i.di] = 1
+    tagged[63 - p0] = -1
     widget.parent_window.invalidate_rect(gdk3.Rectangle(nil), false)
   else:
     x = firstclickx div (widget.parent_window.width div 8)
@@ -78,20 +83,25 @@ proc onButtonPressEvent(widget: Widget; event: EventButton; userData: gpointer):
       widget.parent_window.invalidate_rect(gdk3.Rectangle(nil), false)
       return false
     if not move_is_valid(p0, p1):
-      cast[gtk3.Window](widget.toplevel).title= "invalid move, ignored." # we have to fix this ugly cast
+      gtk_window(widget.toplevel).title= "invalid move, ignored."
       firstclickx = -1
       widget.parent_window.invalidate_rect(gdk3.Rectangle(nil), false)
       return false
-    cast[gtk3.Window](widget.toplevel).title= move_to_str(p0, p1) # we have to fix this ugly cast
-    do_move(p0, p1)
+    var flag = do_move(p0, p1)
+    gtk_window(widget.toplevel).title= move_to_str(p0, p1, flag)
     firstclickx = -1
     widget.parent_window.invalidate_rect(gdk3.Rectangle(nil), false)
     discard gtk3.main_iteration_do(false)
     set_cursor(widget.parent_window, cursor_new_from_name(display_get_default(), "wait"))
     discard gtk3.main_iteration_do(false)
     var m = reply()
-    cast[gtk3.Window](widget.toplevel).title= move_to_str(m.src, m.dst) & " (score: " & $m.score & ")" # we have to fix this ugly cast
-    do_move(m.src, m.dst)
+    flag = do_move(m.src, m.dst)
+    msg = move_to_str(m.src, m.dst, flag) & " (score: " & $m.score & ")"
+    if m.score > SureCheckmate:
+      msg &= " mate in " & $m.checkmate_depth
+    elif m.score < -SureCheckmate:
+      msg &= " computer is mate in " & $m.checkmate_depth
+    gtk_window(widget.toplevel).title= msg
     set_cursor(widget.parent_window, gdk3.Cursor(nil))
     widget.parent_window.invalidate_rect(gdk3.Rectangle(nil), false)
   return false

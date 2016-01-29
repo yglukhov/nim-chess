@@ -1939,19 +1939,19 @@ proc child*(bin: Bin): Widget {.
     importc: "gtk_bin_get_child", libgtk.}
 
 template gtk_window*(obj: expr): expr = 
-  (g_type_check_instance_cast(obj, window_get_type(), WindowObj))
+  (g_type_check_instance_cast(obj, gtk3.window_get_type(), gtk3.WindowObj))
 
 template gtk_window_class*(klass: expr): expr = 
-  (g_type_check_class_cast(klass, window_get_type(), WindowClassObj))
+  (g_type_check_class_cast(klass, gtk3.window_get_type(), WindowClassObj))
 
 template gtk_is_window*(obj: expr): expr = 
-  (g_type_check_instance_type(obj, window_get_type()))
+  (g_type_check_instance_type(obj, gtk3.window_get_type()))
 
 template gtk_is_window_class*(klass: expr): expr = 
-  (g_type_check_class_type(klass, window_get_type()))
+  (g_type_check_class_type(klass, gtk3.window_get_type()))
 
 template gtk_window_get_class*(obj: expr): expr = 
-  (g_type_instance_get_class(obj, window_get_type(), WindowClassObj))
+  (g_type_instance_get_class(obj, gtk3.window_get_type(), WindowClassObj))
 
 type 
   WindowClass* =  ptr WindowClassObj
