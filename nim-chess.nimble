@@ -9,3 +9,4 @@ srcDir: "."
 
 [Deps]
 requires: "nim >= 0.13"
+requires: "nimx"
