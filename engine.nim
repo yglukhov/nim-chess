@@ -550,7 +550,6 @@ type Flag* {.pure.} = enum
   
 proc do_move*(p0, p1: Position; silent = false): Flag =
   if board[p1] != VoidID: result = Flag.capture
-  if board[p0].abs == PawnID and board[p1].abs == VoidID and (p1 - p0).odd: result = Flag.ep
   if not silent: has_moved[p0] = true
   pjm = -1
   if is_a_pawn(p0) and (p0 - p1).abs == 16:
@@ -566,7 +565,8 @@ proc do_move*(p0, p1: Position; silent = false): Flag =
     board[p0] *= QueenID
     result = if result == Flag.capture: Flag.procap else: Flag.promotion
   if is_a_pawn(p0) and board[p1].abs == VoidID and (p1 - p0).odd:
-    board[p1 - sign(board[p0] * 8)] = VoidID
+    result = Flag.ep
+    board[p1 - sign(board[p0]) * 8] = VoidID
   board[p1] = board[p0]
   board[p0] = VoidID
   
